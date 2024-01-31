@@ -10,9 +10,19 @@
 
 //math constants
 double PI = 3.14159265;
+double e = 2.718281828;
+//conversion factors
+double yr_s = 3.154E7;
+double sl_kg = 1.99E30;
+double pc_m = 3.086E16;
 
 //physics constants
 double G = 6.67E-11;
+double kb = 1.38E-23;
+double m_p = 1.67E-27;
+double c = 3.0E8;
+
+
 double gama = 1.8;/*>0.6 */
 double gama_e = 1.8;
 double alpha = 4.0;
@@ -20,10 +30,17 @@ double alpha_b = 1.8;
 double q_b = 0.6;
 
 //parameters of sim
+double M1 = 1E6; //solar mass
+double q = 1.0 / 9.0;
+double M2 = M1 * q;
+
+double R_sd = log10(M1 / pow(10,5));
+double R_gd = 2.0 * R_sd;
+
 double rho_bulge = 1E8;
 double M_s = 2.0E30;
 double M_e = 5.97E24;
-
+double n_gd = 300 * pow(0.01, 3);
 //double M2 = 1E6;
 
 // Define the state of the system
@@ -57,6 +74,45 @@ double grad(double z, double (*f) (double)) {
 }
 
 /* Relevant potentials/forces (disk, bulge, stellar DF, gas DF, velocity distribution, etc. */
+
+
+double rho_gd(double r) {
+    return n_gd * m_p * pow(e, -1.0 * r / R_gd);
+}
+
+double gasDFb(double r, double v) {
+    return 4 * PI * pow((G * M2 * sl_kg), 2) * rho_gd(r) / pow(v, 2);
+}
+
+double gasDFr(double r, double v, double cs) {
+    double mach = v / cs;
+    double I_r;
+
+    if (mach < 1.1) {
+        I_r = pow(mach, 2) * pow(10, 3.51 * mach - 4.22);
+    } else if (mach < 4.4) {
+        I_r = 0.5 * log(9.33 * pow(mach, 2) * (pow(mach, 2) - 0.95));
+    } else {
+        I_r = 0.3 * pow(mach, 2);
+    }
+
+    return -1.0 * gasDFb(r, v) * I_r;
+}
+
+double gasDFt(double r, double v, double cs) {
+    double mach = v / cs;
+    double I_t;
+    double r_min = r / 10.0;
+    if (mach < 1.0) {
+        I_t = 0.7706 * log((1 + mach) / (1.0004 - 0.9185 * mach));
+    } else if (mach < 4.4) {
+        I_t = log(330 * (r / r_min) * pow(mach, -9.58) * pow(mach - 0.71, 5.72));
+    } else {
+        I_t = log((r / r_min) / (0.11 * mach + 1.65));
+    }
+
+    return -1.0 * gasDFb(r, v) * I_t;
+}
 
 double stelDF(double s, double velocity_c, double velocity, double p_max, double M2, double vg)
 {
@@ -103,25 +159,26 @@ double testPhi(double z) { //test potential
 }
 
 //total force governing EoM
-double fr(double r, double rdot, double tdot, double l) {
+double fr(double r, double rdot, double thetadot, double cs) {
     //include dissipative forces later
     
     //double df1 = /* (4 * PI * pow(6.67E-11, 2) * pow(M2 * (2E+30), 2) * rho_bulge * (2E+30 / (pow(3.086E+19, 3))) */ (1.0 / pow(abs(v), 2)) * stelDF_func(abs(v));
-    
-    return (-1.0 * G * M_s) / pow(r , 2.0) + pow(l, 2) / pow(r, 3);
+    double v = pow(pow(rdot, 2.0) + pow(r * thetadot, 2.0), 0.5);
+    return (1.0 / (M2 * sl_kg)) * ((-1.0 * G * M1 * M2 * pow(sl_kg, 2)) / pow(r , 2.0) + r * pow(thetadot, 2) + gasDFr(r, v, cs));
 }
 
-double ftheta(double theta, double thetadot) {
+double ftheta(double r, double rdot, double theta, double thetadot, double cs) {
     
-    return 0;
+    double v = pow(pow(rdot, 2.0) + pow(r * thetadot, 2.0), 0.5);
+    return (1.0 / (M2 * sl_kg)) * (gasDFt(r, v, cs) + (-2.0) * rdot * thetadot * M2 / (r)); //coriolis force to conserve angular momentum
 }
-//SUBSTITUTE L DUMBASS
+//SUBSTITUTE L
 // RK4 Solver function
-State RK4Solver(State initial_state, double dt, double total_time, double l) {
+State RK4Solver(State initial_state, double dt, double total_time) {
     State current_state = initial_state;
     double t = 0.0;
     char filename[20];
-    sprintf(filename, "osc_sun.txt");
+    sprintf(filename, "bh_test.txt");
     FILE* fp = fopen(filename, "w");
 
     while (t < total_time) {
@@ -130,7 +187,8 @@ State RK4Solver(State initial_state, double dt, double total_time, double l) {
         double theta = current_state.theta;
         double thetadot = current_state.thetadot;
 
-        
+        double T = 1E4;
+        double cs = pow((5 * kb * T) / (3 * m_p), 0.5);
         // Calculate the four RK4 steps
         /*  
         double k1x = v;
@@ -150,24 +208,24 @@ State RK4Solver(State initial_state, double dt, double total_time, double l) {
         */
 
         double k1r = rdot;
-        double k1rd = fr(r, rdot, thetadot, l);
+        double k1rd = fr(r, rdot, thetadot, cs);
         double k1t = thetadot;
-        double k1td = ftheta(theta, thetadot);
+        double k1td = ftheta(r, rdot, theta, thetadot, cs);
         
         double k2r = rdot + 0.5 * k1rd * dt;
-        double k2rd = fr(r + 0.5 * k1r * dt, rdot + 0.5 * k1rd * dt, thetadot + 0.5 * k1td * dt, l);
+        double k2rd = fr(r + 0.5 * k1r * dt, rdot + 0.5 * k1rd * dt, thetadot + 0.5 * k1td * dt, cs);
         double k2t = thetadot + 0.5 * k1td * dt;
-        double k2td = ftheta(theta + 0.5 * k1t * dt, thetadot + 0.5 * k1td * dt);
+        double k2td = ftheta(r + 0.5 * k1r * dt, rdot + 0.5 * k1rd * dt, theta + 0.5 * k1t * dt, thetadot + 0.5 * k1td * dt, cs);
         
         double k3r = rdot + 0.5 * k2rd * dt;
-        double k3rd = fr(r + 0.5 * k2r * dt, rdot + 0.5 * k2rd * dt, thetadot + 0.5 * k2td * dt, l);
+        double k3rd = fr(r + 0.5 * k2r * dt, rdot + 0.5 * k2rd * dt, thetadot + 0.5 * k2td * dt, cs);
         double k3t = thetadot + 0.5 * k2td * dt;
-        double k3td = ftheta(theta + 0.5 * k2t * dt, thetadot + 0.5 * k2td * dt);
+        double k3td = ftheta(r + 0.5 * k2r * dt, rdot + 0.5 * k2rd * dt, theta + 0.5 * k2t * dt, thetadot + 0.5 * k2td * dt, cs);
         
         double k4r = rdot + k3rd * dt;
-        double k4rd = fr(r + k3r * dt, rdot + k3rd * dt, thetadot + k3td * dt, l);
+        double k4rd = fr(r + k3r * dt, rdot + k3rd * dt, thetadot + k3td * dt, cs);
         double k4t = thetadot + k3td * dt;
-        double k4td = ftheta(theta + k3t * dt, thetadot + k3td * dt);
+        double k4td = ftheta(r + k3r * dt, rdot + k3rd * dt, theta + k3t * dt, thetadot + k3td * dt, cs);
         
         current_state.r += (k1r + 2.0 * k2r + 2.0 * k3r + k4r) * (dt / 6.0);
         current_state.rdot += (k1rd + 2.0 * k2rd + 2.0 * k3rd + k4rd) * (dt / 6.0);
@@ -191,18 +249,18 @@ int main() {
     //double initial_position = 0.0;
     //double initial_velocity = 5.0;
 
-    double r0 = 1.47E11;
+    double r0 = 3000 * pc_m;
     double rd0 = 0.0;
     double t0 = 0.0;
-    double td0 = 2.06E-7;
-    double total_time = 3.2E7;
-    int n = 100000;
+    double td0 = 1E-18;
+    double total_time = 1.0E9 * yr_s;
+    int n = 10000;
     double time_step = total_time / n;
     //printf("%lf\n", numInt(0.0, 3.0, testPhi));
     double l = pow(r0, 2) * td0;
 
     State initial_state{ r0, rd0, t0, td0};
-    State final_state = RK4Solver(initial_state, time_step, total_time, l);
+    State final_state = RK4Solver(initial_state, time_step, total_time);
 
     return 0;
 }
