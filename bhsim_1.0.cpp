@@ -8,7 +8,8 @@
 #include <vector>
 #include <cmath> //need this for bessel and few other things
 #include "poisson.h" //for computing galaxy potential
-#include <gsl/gsl_interp2d.h>
+#include "integration.h" //2D scaling integrals
+#include <gsl/gsl_interp2d.h> //interpolate lookup table
 
 //math constants
 double PI = 3.14159265;
@@ -44,6 +45,7 @@ double rho_bm = 1E8;
 double M_s = 2.0E30;
 double M_e = 5.97E24;
 double n_gd = 300 * pow(100, 3);
+double f = 0.5;
 double z_thick = R_gd / 10.0;
 //double M2 = 1E6;
 
@@ -113,6 +115,7 @@ double rho_gd(double r) {
 double rho_rz(double r, double z) {
     return gsl_interp2d_eval(interp_r, r_arr, z_arr, rho_flat, r, z, xacc_r, yacc_r);
 }
+
 double sigma_gd(double r) {
     return rho_gd(r) * (2 * z_thick);
 }
@@ -150,7 +153,8 @@ double gasDFb(double r, double z) {
     //double rhot = gsl_interp2d_eval(interp_r, r_arr, z_arr, rho_flat, r, z, xacc_r, yacc_r);
     //printf("%E\t%E\n", rhot, rho_gd(r));
     //printf("%E\n", 4 * PI * pow((G * M2 * sl_kg), 2) * rho_gd(r));
-    return 4 * PI * pow((G * M2 * sl_kg), 2) * rho_gd(r);
+    //return 4 * PI * pow((G * M2 * sl_kg), 2) * rho_gd(r);
+    return 4 * PI * pow((G * M2 * sl_kg), 2) * rho_rz(r, z);
     //return 4 * PI * pow((G * M2 * sl_kg), 2) * rhot; //DONT DIVIDE BY V^2 YET
 }
 
@@ -223,6 +227,8 @@ double gasDFz(double r, double z, double zdot, double cs) {
         I = (0.5 * log((1-mach) / (1+mach)) - mach);
     } else if (mach > 1.0) {
         I = (0.5 * log(1 - 1 / (mach * mach)) + 10);
+    } else if (mach < 0.1) {
+        I = mach * mach * mach / 3.0;
     } else {
         I = 0.0;
     }
@@ -232,43 +238,6 @@ double gasDFz(double r, double z, double zdot, double cs) {
 
 double oomDF(double r, double v, double cs) {
     return 4 * PI * G * G * M2 * M2 * n_gd * m_p / (cs * cs);
-}
-
-double stelDF(double s, double velocity_c, double velocity, double p_max, double M2, double vg)
-{
-    if (abs(velocity) < pow(2.0, 0.5) * velocity_c) {
-        /* g is the field star velocity distribution*/
-        double g = (tgamma(gama + 1) / tgamma(gama - 0.5)) * pow((2 * pow(velocity_c, 2) - pow(s, 2)), (gama - 1.5)) / (pow(2, gama) * pow(PI, 1.5) * pow(velocity_c, (2 * gama)));
-        /*double g = exp(-1*pow(s, 2) / pow(2E+5*pow((M1/(1.9E+8)),(1.0/5.1)),2)) / ( pow(PI, 1.5)* pow(2E+5*pow((M1/(1.9E+8)),(1.0/5.1)),3) ) ;*/
-        double f = 4 * PI * g * pow(s, 2) * log((p_max / ((6.67E-11) * M2 * (2E+30))) * (pow(velocity, 2) - pow(s, 2)));
-        return f;
-
-    }
-    else {
-        double f = 0.0;
-        return f;
-    }
-}
-
-double sumintegral_10(double velocity_c, double velocity, double p_max, double M2, double vg)
-{
-    int n = 20;
-    double lowbound = 0.0;
-    double upbound = abs(velocity);
-    double dx = (double)(upbound - lowbound) / n;
-    double cumsum = 0;
-    for (int i = 1; i < n; i++)
-    {
-        double xi = lowbound + i * dx;
-        double function_value = stelDF(xi, velocity_c, abs(velocity), p_max, M2, vg);
-        double rectangle_area = function_value * dx;
-        cumsum += rectangle_area;
-    }
-    return cumsum;
-}
-
-double stelDF_func(double v) {
-    return sumintegral_10(0.1, v, 1.0, 1.0, 0.5); //dummy vars for now
 }
 
 //OLD
@@ -306,7 +275,7 @@ double g_fz(double r, double z) {
     //return -1.0 * (disk_pot(r, z + dz) - disk_pot(r, z)) / dz;
 }
 double vc(double r) { 
-    return pow(r * -1.0 * gF(r), 0.5);
+    return pow(r * -1.0 * g_fr(r, 0.0), 0.5);
 }
 
 //total force governing EoM
@@ -334,7 +303,7 @@ double ftheta(double r, double rdot, double theta, double thetadot, double z, do
 
 double fz(double r, double rdot, double thetadot, double z, double zdot, double cs) {
     //printf("%E\n", g_fz(r,z) / (-1.0 * sgn(zdot) * gasDFz(r, z, zdot, cs) / (M2 * sl_kg)));
-    printf("%E\n", zdot);
+    printf("%f\n", zdot/cs);
     return g_fz(r, z) + -1.0 * sgn(zdot) * gasDFz(r, z, zdot, cs) / (M2 * sl_kg);
     //return 0.0;
 }
@@ -441,7 +410,7 @@ State RK4Solver(State initial_state, double dt, double total_time) {
         fprintf(fp, "%E\t%E\n", t, current_state.r);
         fprintf(fm, "%E\t%E\n", t, (E-E0)/E0);
         fprintf(fv, "%E\t%E\n", t, z);
-        //dt = 0.001 * 2 * PI * current_state.r / vc(r);
+        dt = 0.001 * 2 * PI * current_state.r / vc(r);
         t += dt;
     }
     
@@ -499,12 +468,15 @@ int main() {
     */
     double L = 2.0 * R_gd;
     double h = L / (N - 1);
-    double rho0 = 10.0 * rho_gd(0.0); //FACTOR OF 10 TO ACCOUNT FOR FLATNESS, WILL BE REMOVED LATER WHEN THICK
-    double rhob0 = 9.5E-21;
+    //double rho0 = 10.0 * rho_gd(0.0); //FACTOR OF 10 TO ACCOUNT FOR FLATNESS, WILL BE REMOVED LATER WHEN THICK
+    double rho0 = 1.0 * rho_gd(0.0);
+    double rhob0 = 0.0 * 9.5E-21;
     double k = 1.0 / R_gd;
     r_init(N, L, r_arr);
     z_init(N, L, z_arr);
-    rho_init(N, L, a, rho0, k);
+    //rho_init(N, L, a, rho0, k);
+    //printf("\nGotcha\n");
+    rhog_init(N, L, a, R_gd, z_thick, rho0);
     bulge_init(N, L, c, rhob0, 0.6, R_gd / 2.0);
     
     

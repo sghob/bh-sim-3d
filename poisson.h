@@ -1,4 +1,4 @@
-#include <iostream>
+#include <vector>
 #include <cmath>
 
 //double bulge_int = 16.1533; //in kpc^3
@@ -31,6 +31,61 @@ void z_init(int N, double L, double *z) {
     
     return;
 }
+
+double rho_stellar(double r, double z, const std::vector<double>& params) {
+    return params[0] * exp(-1.0 * r / params[1]) * ((params[1] / (2*params[2])) * exp(-1.0 * abs(z) / params[2]) + (params[3] / (2*params[4])) * exp(-1.0 * abs(z) / params[4]));
+}
+
+void rhos_init(int N, double L, double **rhos, const std::vector<double>& params) {
+    double h = L / (N - 1);
+    for (int i = 0; i < N/2; i++) {
+        double r = i * h;
+        for (int j = 0; j < N/2; j++) {
+            double z = j * h;
+            double density;
+            density = rho_stellar(r, z, params);
+            
+            rhos[N/2+j][N/2+i] = density;
+            rhos[N/2-j][N/2+i] = density;
+            rhos[N/2+j][N/2-i] = density;
+            rhos[N/2-j][N/2-i] = density;
+            
+        }
+    }
+
+    return;
+   
+}
+
+double rho_gas(double r, double z, double r_g, double z_g, double A) {
+    return A * pow(M_E, -1.0 * r / r_g - abs(z) / z_g);
+}
+
+double rho_gas_f(double r, double z, const std::vector<double>& params) {
+    //cannot integrate this function normally for some reason, need to use evenness symmetry
+    return 2 * M_PI * r * params[0] * pow(M_E, (-1.0 * r / params[1]) - 1.0 * (z / params[2])); //note, no abs
+}
+
+void rhog_init(int N, double L, double **rhog, double r_g, double z_g, double A) {
+    double h = L / (N - 1);
+    for (int i = 0; i < N/2; i++) {
+        double r = i * h;
+        for (int j = 0; j < N/2; j++) {
+            double z = j * h;
+            double density;
+            density = rho_gas(r, z, r_g, z_g, A);
+            
+            rhog[N/2+j][N/2+i] = density;
+            rhog[N/2-j][N/2+i] = density;
+            rhog[N/2+j][N/2-i] = density;
+            rhog[N/2-j][N/2-i] = density;
+            
+        }
+    }
+
+    return;
+}
+
 
 void rho_init(int N, double L, double **rho, double A, double k) {
     
@@ -67,6 +122,11 @@ void rho_init(int N, double L, double **rho, double A, double k) {
 double rho_bulge(double r, double z, double rho0, double qb, double ab, double rb) {
     double m = pow(r * r + (z * z) / (qb * qb), 0.5);
     return rho0 * pow(m/ab, -1.8) * pow(M_E, -1.0 * m * m / (rb * rb));
+}
+
+double rho_bulge_f(double r, double z, const std::vector<double>& params) {
+    double m = pow(r * r + (z * z) / (params[1] * params[1]), 0.5);
+    return params[0] * pow(m / params[2], -1.8) * pow(M_E, -1.0 * m * m / (params[3] * params[3]));
 }
 
 void bulge_init(int N, double L, double **rho_b, double rho0, double qb, double Rb) {

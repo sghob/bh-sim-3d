@@ -2,6 +2,8 @@
 #include <vector>
 #include <functional>
 #include <cmath>
+#include "integration.h"
+#include "poisson.h"
 
 // Function to integrate
 double function(double x, double y, const std::vector<double>& params) {
@@ -23,43 +25,23 @@ double function1(double r, double z, const std::vector<double>& params) {
     return fx;
 }
 
-// Simpson's rule for integrating a 1D function
-double integrate1D(std::function<double(double, const std::vector<double>&)> f, double a, double b, int n, const std::vector<double>& params) {
-    double h = (b - a) / n;
-    double integral = f(a, params) + f(b, params);
-
-    for (int i = 1; i < n; i += 2) {
-        integral += 4 * f(a + i * h, params);
-    }
-
-    for (int i = 2; i < n - 1; i += 2) {
-        integral += 2 * f(a + i * h, params);
-    }
-
-    return integral * h / 3.0;
-}
-
-// Double integration using Simpson's rule
-double integrate2D(std::function<double(double, double, const std::vector<double>&)> f, double ax, double bx, double ay, double by, int nx, int ny, const std::vector<double>& params) {
-    auto inner_func = [&](double y, const std::vector<double>& params) {
-        return integrate1D([&](double x, const std::vector<double>& params) { return f(x, y, params); }, ax, bx, nx, params);
-    };
-
-    return integrate1D(inner_func, ay, by, ny, params);
-}
-
 int main() {
-    double ax = 0.01, bx = 1.0; // Integration limits for x
+    //double kpc_m = 3.086E19;
+    double ax = 0.00, bx = 1.0; // Integration limits for x
     double ay = -10.0, by = 10.0; // Integration limits for y
     int nx = 100000; // Number of subdivisions for x
     int ny = 100; // Number of subdivisions for y
-
+    double rgas = 300.0 * 1E6 * 1.67E-27;
+/*
     // Parameters for the function
     std::vector<double> params = {0.6, 1.9, 1.0}; // Example coefficients a and b
 
     // Perform double integration
     double result = integrate2D(function1, ax, bx, ay, by, nx, ny, params);
     std::cout << "Result of double integration: " << result << std::endl;
-
+*/
+    std::vector<double> params = {1.0, 2.0, 0.1};
+    double result = integrate2D(rho_gas_f, 0.0, 100.0, 0.0, 100.0, 1000, 1000, params);
+    printf("%f\n", result);
     return 0;
 }
