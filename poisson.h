@@ -21,6 +21,25 @@ void r_init(int N, double L, double *r) {
     return;
 }
 
+/*
+void r2_init(int N1, int N2, double L1, double L2, double *r) {
+    
+    double h1 = L1 / (N1 - 1);
+    double h2 = L2 / (N2 - 1);
+    for (int i = 0; i < N1 / 2; i++) {
+        double x = i * h1;
+        for (int j = 0; j < N2 / 2; j++) {
+            double y = j * h2;
+            r[N1/2+i] = x;
+            r[N1/2-i] = -1.0 * x;
+            r[N2/2 + j] = y;
+            r[N2/2 - j] = -1.0 * y;
+        }
+    }
+
+    return;
+}
+*/
 void z_init(int N, double L, double *z) {
     
     double h = L / (N - 1);
@@ -57,8 +76,29 @@ void rhos_init(int N, double L, double **rhos, const std::vector<double>& params
     }
 
     return;
-   
 }
+
+void rhos_init2(int N, int N2, double L, double L2, double **rhos, const std::vector<double>& params) {
+    double h = L / (N - 1);
+    double h2 = L2 / (N2 - 1);
+    for (int i = 0; i < N/2; i++) {
+        double r = i * h;
+        for (int j = 0; j < N2/2; j++) {
+            double z = j * h2;
+            double density;
+            density = rho_stellar(r, z, params);
+            //printf("%E\n", density);
+            rhos[N2/2+j][N/2+i] = density;
+            rhos[N2/2-j][N/2+i] = density;
+            rhos[N2/2+j][N/2-i] = density;
+            rhos[N2/2-j][N/2-i] = density;
+            
+        }
+    }
+
+    return;
+}
+
 
 double rho_gas(double r, double z, double r_g, double z_g, double A) {
     return A * pow(M_E, -1.0 * r / r_g - abs(z) / z_g);
@@ -89,6 +129,26 @@ void rhog_init(int N, double L, double **rhog, double r_g, double z_g, double A)
     return;
 }
 
+void rhog2_init(int N, int N2, double L, double L2, double **rhog, double r_g, double z_g, double A) {
+    double h = L / (N - 1);
+    double h2 = L2 / (N2 - 1);
+    for (int i = 0; i < N/2; i++) {
+        double r = i * h;
+        for (int j = 0; j < N2/2; j++) {
+            double z = j * h2;
+            double density;
+            density = rho_gas(r, z, r_g, z_g, A);
+            
+            rhog[N2/2+j][N/2+i] = density;
+            rhog[N2/2-j][N/2+i] = density;
+            rhog[N2/2+j][N/2-i] = density;
+            rhog[N2/2-j][N/2-i] = density;
+            printf("%E\n", density);
+        }
+    }
+
+    return;
+}
 
 void rho_init(int N, double L, double **rho, double A, double k) {
     
@@ -154,7 +214,8 @@ void bulge_init(int N, double L, double **rho_b, double rho0, double qb, double 
             double z = j * h;
             double density;
             if (r == 0 && z == 0) {
-                density = 5.16E-17 * (rho0 != 0.0);
+                density = 5.16E-16 * (rho0 != 0.0);
+                //density = rho_bulge(r + h, z, rho0, qb, ab, rb);
             } else if (r > 3.086E19 || z > 3.086E19) {
                 density = 0.0;
             } else {
@@ -165,6 +226,37 @@ void bulge_init(int N, double L, double **rho_b, double rho0, double qb, double 
             rho_b[N/2-j][N/2+i] = density;
             rho_b[N/2+j][N/2-i] = density;
             rho_b[N/2-j][N/2-i] = density;
+            
+        }
+    }
+
+    return;
+}
+
+void bulge2_init(int N, int N2, double L, double L2, double **rho_b, double rho0, double qb, double Rb) {
+    double ab = 1.0 * kpc_m;//Rb / 4.0;               //EDIT THIS FOR VARIABLE SCALE R
+    double rb = 1.9 * kpc_m;//* Rb / 4.0;
+    //double ab = 1.0 * Rb / 4.0;
+    //double rb = 1.0 * Rb / 4.0;
+    double h = L / (N - 1);
+    double h2 = L2 / (N2 - 1);
+    for (int i = 0; i < N / 2; i++) {
+        double r = i * h;
+        for (int j = 0; j < N2 / 2; j++) {
+            double z = j * h2;
+            double density;
+            if (r == 0 && z == 0) {
+                density = 8.048E-15 * (rho0 != 0.0); //DANGER DANGER DANGER DANGER, NEED TO ADJUST FOR OMEGA2
+            } else if (r > 3.086E19 || z > 3.086E19) {
+                density = 0.0;
+            } else {
+                density = rho_bulge(r, z, rho0, qb, ab, rb);
+            }
+
+            rho_b[N2/2+j][N/2+i] = density;
+            rho_b[N2/2-j][N/2+i] = density;
+            rho_b[N2/2+j][N/2-i] = density;
+            rho_b[N2/2-j][N/2-i] = density;
             
         }
     }
@@ -209,7 +301,9 @@ void relax(int N, double L, double **rho, double **phi, int max_iters, double ep
 
         for (int j = 1; j < N - 1; j++) {
             for (int k = 1; k < N - 1; k++) {
-                double phi_new = 0.25 * (phi[j - 1][k] + phi[j + 1][k] + phi[j][k - 1] + phi[j][k + 1] - 4 * M_PI * 6.67E-11 * h * h * rho[j][k]);
+                //double phi_new = 0.25 * (phi[j - 1][k] + phi[j + 1][k] + phi[j][k - 1] + phi[j][k + 1] - 4 * M_PI * 6.67E-11 * h * h * rho[j][k]);
+                double r = abs(N / 2 - k) * h;
+                double phi_new = (/*(phi[j][k + 1] - phi[j][k - 1]) / (2 * r * h) + */(1 / (h * h)) * (phi[j][k + 1] + phi[j][k - 1]) + (1 / (h * h)) * (phi[j+1][k] + phi[j-1][k]) - 4 * M_PI * 6.67E-11 * rho[j][k]) / (2 / (h * h) + 2/ (h * h));
                 double error = fabs(phi[j][k] - phi_new);
                 if (error > f_error) {
                     f_error = error;
@@ -230,9 +324,10 @@ void relax_amr(int N, int M, double L, double W, double **rho, double **phi, int
     for (int i = 0; i < max_iters; i++) {
         double f_error = 0.0;
 
-        for (int j = 0; j < N; j++) {
-            for (int k = 0; k < M; k++) {
-                double phi_new = 0.25 * (phi[j - 1][k] + phi[j + 1][k] + phi[j][k - 1] + phi[j][k + 1] - 4 * M_PI * 6.67E-11 * h * hw * rho[j][k]);
+        for (int j = 1; j < M-1; j++) {
+            for (int k = 1; k < N-1; k++) {
+                //double phi_new = 0.25 * (phi[j - 1][k] + phi[j + 1][k] + phi[j][k - 1] + phi[j][k + 1] - 4 * M_PI * 6.67E-11 * h * hw * rho[j][k]);
+                double phi_new = (/*(phi[j][k + 1] - phi[j][k - 1]) / (2 * r * h) + */(1 / (h * h)) * (phi[j][k + 1] + phi[j][k - 1]) + (1 / (hw * hw)) * (phi[j+1][k] + phi[j-1][k]) - 4 * M_PI * 6.67E-11 * rho[j][k]) / (2 / (h * h) + 2/ (hw * hw));
                 double error = fabs(phi[j][k] - phi_new);
                 if (error > f_error) {
                     f_error = error;

@@ -64,22 +64,49 @@ struct State { //define phase space coord
 };
 
 //DECLARE DENSITY & POTENTIAL GRID
+//Update 11/09/24: including AMR grids for Omega2 (disk boundary)
 double *r_arr;
 double *z_arr;
+double *r2_arr;
+double *z2_arr;
+
 double **rho;
+double **rho2;
+
 double **rho_g;
+double **rho_g2;
+
 double **rho_s;
+double **rho_s2;
+
 double **rho_st;
+double **rho_st2;
+
 double **rho_bg;
+double **rho_bg2;
+
 double *rho_flat;
+double *rho_flat2;
+
 double *rho_g_flat;
+double *rho_g_flat2;
+
 double *rho_s_flat;
+double *rho_s_flat2;
+
 double *rho_st_flat;
+double *rho_st_flat2;
+
+//come back to dm halo later
 double **rho_h;
 double *rho_h_flat;
+
 double **phi;
+double **phi2;
+
 double **phi_b;
 double *phi_flat;
+double *phi_flat2;
 
 // Create an interpolation object
 gsl_interp2d *interp;
@@ -89,6 +116,10 @@ gsl_interp_accel *yacc;
 gsl_interp2d *interp_r;
 gsl_interp_accel *xacc_r;
 gsl_interp_accel *yacc_r;
+
+gsl_interp2d *interp_amr;
+gsl_interp_accel *xacc_amr;
+gsl_interp_accel *yacc_amr;
 
 //Solver helper functions
 
@@ -230,8 +261,8 @@ double gasDFz(double r, double z, double zdot, double cs) {
     double I = 0.0;
     //printf("%E\n", mach);
 
-    if (mach > 0.05 && mach < 0.99999) {
-        I = (0.5 * log((1-mach) / (1+mach)) - mach);
+    if (mach > 0.5 && mach < 0.99999) { //GOTCHA BITCH
+        I = (0.5 * log((1-mach) / (1+mach)) - mach); //dfz "kicking" the BH
     } else if (mach > 1.0) {
         I = (0.5 * log(1 - 1 / (mach * mach)) + 10);
     } else if (mach < 0.1) {
@@ -266,6 +297,7 @@ double df_dm_test(double r, double z, double v) {
 double df_slow_r_disk(double v_g, double v, double r, double z, double rdot) {
     if (v > abs(v_g)) {
         //return 0.01 * rdot * df_coeff(M2, rho_rz(r, z), v) * 4 * M_PI * v_g * v_g * log((M1 * sl_kg / (v_g * v_g * M2 * sl_kg)) * (v * v - v_g * v_g));
+        //return 0.0;
         return rdot * df_coeff(M2, rhos_rz(r, z), v) * log((M1 * sl_kg / (v_g * v_g * M2 * sl_kg)) * (v * v - v_g * v_g));
     } else {
         return 0.0;
@@ -285,6 +317,7 @@ double df_slow_t_disk(double v_g, double v, double r, double z, double thetadot)
 double df_slow_z_disk(double v_g, double v, double r, double z, double zdot) {
     if (v > abs(v_g)) {
         //return zdot * df_coeff(M2, rho_rz(r,z), v) * 4 * M_PI * v_g * v_g * log((M1 * sl_kg / (v_g * v_g * M2 * sl_kg)) * (v * v - v_g * v_g));
+        //return 0.0;
         return zdot * df_coeff(M2, rhos_rz(r,z), v) * log((M1 * sl_kg / (v_g * v_g * M2 * sl_kg)) * (v * v - v_g * v_g));
     } else {
         return 0.0;
@@ -295,6 +328,7 @@ double df_fast_r_disk(double v_g, double v, double r, double z, double rdot) {
     if (v < abs(v_g)) {
         //return 0.01 * rdot * df_coeff(M2, rho_rz(r, z), v) * 4 * M_PI * v_g * v_g * log((M1 * sl_kg / (v_g * v_g * M2 * sl_kg)) * (v * v - v_g * v_g));
         return rdot * df_coeff(M2, rhos_rz(r, z), v) * (log((v_g + v) / (v_g - v)) - 2 * v / v_g);
+        //return 0.0;
     } else {
         return 0.0;
     }
@@ -312,6 +346,7 @@ double df_fast_t_disk(double v_g, double v, double r, double z, double thetadot)
 double df_fast_z_disk(double v_g, double v, double r, double z, double zdot) {
     if (v < abs(v_g)) {
         //return 0.01 * rdot * df_coeff(M2, rho_rz(r, z), v) * 4 * M_PI * v_g * v_g * log((M1 * sl_kg / (v_g * v_g * M2 * sl_kg)) * (v * v - v_g * v_g));
+        //return 0.0;
         return zdot * df_coeff(M2, rhos_rz(r, z), v) * (log((v_g + v) / (v_g - v)) - 2 * v / v_g);
     } else {
         return 0.0;
@@ -345,6 +380,11 @@ double g_fr(double r, double z) {
     //return -1.0 * (testPhi(r + dr) - testPhi(r)) / dr;
     //printf("%E\n", r / pc_m);
     //printf("\n%E", gsl_interp2d_eval_deriv_x(interp, r_arr, z_arr, phi_flat, r, z, xacc, yacc));
+    if (abs(z) < 0 * 0.04 * R_gd) {
+        //printf("%E\n", (-1.0 * gsl_interp2d_eval_deriv_y(interp_amr, r2_arr, z2_arr, phi_flat2, r, z, xacc_amr, yacc_amr)) / (-1.0 * gsl_interp2d_eval_deriv_y(interp, r_arr, z_arr, phi_flat, r, z, xacc, yacc)) );
+        //printf("o2\n");
+        return -1.0 * gsl_interp2d_eval_deriv_x(interp_amr, r2_arr, z2_arr, phi_flat2, r, z, xacc_amr, yacc_amr);
+    }
     return -1.0 * gsl_interp2d_eval_deriv_x(interp, r_arr, z_arr, phi_flat, r, z, xacc, yacc);
     //return 0.0;
 }
@@ -352,11 +392,16 @@ double g_fr(double r, double z) {
 double g_fz(double r, double z) {
     double dz = z * 1E-8;
     //printf("%E\n", z / pc_m);
+    if (abs(z) < 0 * 0.04 * R_gd) {
+        //printf("%E\n", (-1.0 * gsl_interp2d_eval_deriv_y(interp_amr, r2_arr, z2_arr, phi_flat2, r, z, xacc_amr, yacc_amr)) / (-1.0 * gsl_interp2d_eval_deriv_y(interp, r_arr, z_arr, phi_flat, r, z, xacc, yacc)) );
+        return -1.0 * gsl_interp2d_eval_deriv_y(interp_amr, r2_arr, z2_arr, phi_flat2, r, z, xacc_amr, yacc_amr);
+    }
     return -1.0 * gsl_interp2d_eval_deriv_y(interp, r_arr, z_arr, phi_flat, r, z, xacc, yacc);
     //return -1.0 * (disk_pot(r, z + dz) - disk_pot(r, z)) / dz;
 }
 
-double vc(double r) { 
+double vc(double r, double z) { 
+
     return pow(r * -1.0 * g_fr(r, 0.0), 0.5);
 }
 
@@ -365,7 +410,8 @@ double vc(double r) {
 double bulge_integrand(double vs, const std::vector<double>& params) {
     //double v_esc = pow(gsl_interp2d_eval(interp, r_arr, z_arr, phi_flat, params[0], params[1], xacc, yacc), 0.5);
     //printf("%E\t%E\t%E\n", fs_v(params[2], vs, params[5]), vs, params[5]);
-    if (params[3] > vs) {
+    //if (params[3] > vs) {
+    if ((1 / (q * params[4] * params[4])) * (params[3] * params[3] - vs * vs) > 1.0) {
         return 4 * M_PI * fs_v(params[2], vs, params[5]) * vs * vs * log((1 / (q * params[4] * params[4])) * (params[3] * params[3] - vs * vs));
     } else if (params[3] < vs && params[3] > 0.0) {
         return 4 * M_PI * fs_v(params[2], vs, params[5]) * vs * vs * (log((vs + params[3]) / (vs - params[3])) - 2 * params[3] / vs);
@@ -376,9 +422,10 @@ double bulge_integrand(double vs, const std::vector<double>& params) {
 
 double df_bulge_r(double r, double z, double v, double rdot) {
     double v_esc = pow(-2.0 * gsl_interp2d_eval(interp, r_arr, z_arr, phi_flat, r, z, xacc, yacc), 0.5);
-    double df_slow = df_coeff(M2, rhost_rz(r, z), v) * integrate1D(bulge_integrand, 0, v, 20, {r, z, vc(r), v, sigma_star, v_esc});
-    double df_fast = df_coeff(M2, rhost_rz(r, z), v) * integrate1D(bulge_integrand, v, v_esc, 20, {r, z, vc(r), v, sigma_star, v_esc});
+    double df_slow = df_coeff(M2, rhost_rz(r, z), v) * integrate1D(bulge_integrand, 0, v, 20, {r, z, vc(r, z), v, sigma_star, v_esc});
+    double df_fast = df_coeff(M2, rhost_rz(r, z), v) * integrate1D(bulge_integrand, v, v_esc, 20, {r, z, vc(r, z), v, sigma_star, v_esc});
     return rdot * (df_slow + df_fast);
+    //return 0.0;
 }
 //ADD IN FAST DF BACK IN LATER (negligible for most purposes, but for completeness)
 double df_bulge_t(double r, double z, double v, double tdot) {
@@ -386,9 +433,12 @@ double df_bulge_t(double r, double z, double v, double tdot) {
     //printf("%E\t", integrate1D(bulge_integrand, 0, v, 20, {r, z, vc(r), v, sigma_star, v_esc}));
     //printf("%E\n", integrate1D(bulge_integrand, v, v_esc, 20, {r, z, vc(r), v, sigma_star, v_esc}));
     if (v > 0.0 * sigma_star) {
-        double df_slow = 1.0 * df_coeff(M2, rhost_rz(r, z), v) * integrate1D(bulge_integrand, 0, v, 20, {r, z, vc(r), v, sigma_star, v_esc});
-        double df_fast = df_coeff(M2, rhost_rz(r, z), v) * integrate1D(bulge_integrand, v, v_esc, 20, {r, z, vc(r), v, sigma_star, v_esc});
+        double df_slow = 1.0 * df_coeff(M2, rhost_rz(r, z), v) * integrate1D(bulge_integrand, 0, v, 20, {r, z, vc(r, z), v, sigma_star, v_esc});
+        double df_fast = 1.0 * df_coeff(M2, rhost_rz(r, z), v) * integrate1D(bulge_integrand, v, v_esc, 20, {r, z, vc(r, z), v, sigma_star, v_esc});
         //return r * tdot * (df_slow);
+        //printf("%E\n", r * tdot * (df_slow + df_fast));
+        //printf("%E\n", df_fast/df_slow);
+        
         return r * tdot * (df_slow + df_fast);
     } else {
         return 0.0;
@@ -397,15 +447,15 @@ double df_bulge_t(double r, double z, double v, double tdot) {
 
 double df_bulge_z(double r, double z, double v, double zdot) {
     double v_esc = pow(-2.0 * gsl_interp2d_eval(interp, r_arr, z_arr, phi_flat, r, z, xacc, yacc), 0.5);
-    double df_slow = df_coeff(M2, rhost_rz(r, z), v) * integrate1D(bulge_integrand, 0, v, 20, {r, z, vc(r), v, sigma_star, v_esc});
-    double df_fast = df_coeff(M2, rhost_rz(r, z), v) * integrate1D(bulge_integrand, v, v_esc, 20, {r, z, vc(r), v, sigma_star, v_esc});
-    return zdot * (df_slow + df_fast);
+    double df_slow = df_coeff(M2, rhost_rz(r, z), v) * integrate1D(bulge_integrand, 0, v, 20, {r, z, vc(r, z), v, sigma_star, v_esc});
+    double df_fast = df_coeff(M2, rhost_rz(r, z), v) * integrate1D(bulge_integrand, v, v_esc, 20, {r, z, vc(r, z), v, sigma_star, v_esc});
+    return 1.0 * zdot * (df_slow + df_fast);
 }
 
 double df_dm_z(double r, double z, double v, double zdot) {
     double v_esc = pow(-2.0 * gsl_interp2d_eval(interp, r_arr, z_arr, phi_flat, r, z, xacc, yacc), 0.5);
-    double df_slow = df_coeff(M2, rhoh_rz(r, z), v) * integrate1D(bulge_integrand, 0, v, 20, {r, z, vc(r), v, sigma_star, v_esc});
-    double df_fast = df_coeff(M2, rhoh_rz(r, z), v) * integrate1D(bulge_integrand, v, v_esc, 20, {r, z, vc(r), v, sigma_star, v_esc});
+    double df_slow = df_coeff(M2, rhoh_rz(r, z), v) * integrate1D(bulge_integrand, 0, v, 20, {r, z, vc(r, z), v, sigma_star, v_esc});
+    double df_fast = df_coeff(M2, rhoh_rz(r, z), v) * integrate1D(bulge_integrand, v, v_esc, 20, {r, z, vc(r, z), v, sigma_star, v_esc});
     return zdot * (df_slow + df_fast);
 }
 
@@ -418,7 +468,7 @@ double fr(double r, double rdot, double thetadot, double z, double zdot, double 
     //printf("\n%E\t%E\n", gasDFr(r, v, cs), (-1.0 * G * M1 * M2 * pow(sl_kg, 2)) / (pow(r , 2.0) + 1.0E-10));
     //printf("\n%E\t%E", (M2 * sl_kg) * r * pow(thetadot, 2), (-1.0 * G * M1 * M2 * pow(sl_kg, 2)) / (pow(r , 2.0)));
     //printf("vc: %E\nGravity: %E\nCentri: %E\nGasDF: %E\nStDF: %E\n", vc(r), M2 * sl_kg * g_fr(r,z), (M2 * sl_kg) * r * pow(thetadot, 2), gasDFr(r, rdot, thetadot, z, cs, vg * vc(r)), df_slow_r_disk(vg * vc(r), v, r, z, rdot));
-    return (1.0 / (M2 * sl_kg)) * (M2 * sl_kg * g_fr(r,z) + (M2 * sl_kg) * r * pow(thetadot, 2) + 1.0 * gasDFr(r, rdot, thetadot, z, cs, vg * vc(r)) + 1.0 * df_slow_r_disk(vg * vc(r), v, r, z, rdot) + 1.0 * df_fast_r_disk(vg * vc(r), v, r, z, rdot) + 1.0 * df_bulge_r(r, z, v, rdot));
+    return (1.0 / (M2 * sl_kg)) * (M2 * sl_kg * g_fr(r,z) + (M2 * sl_kg) * r * pow(thetadot, 2) + 1.0 * gasDFr(r, rdot, thetadot, z, cs, vg * vc(r, z)) + 1.0 * df_slow_r_disk(vg * vc(r, z), v, r, z, rdot) + 1.0 * df_fast_r_disk(vg * vc(r, z), v, r, z, rdot) + 1.0 * df_bulge_r(r, z, v, rdot));
 
     //return (1.0 / (M2 * sl_kg)) * ((-1.0 * G * M1 * M2 * pow(sl_kg, 2)) / (pow(r , 2.0)) + (M2 * sl_kg) * r * pow(thetadot, 2) + gasDFr(r, r * thetadot, cs));
 
@@ -433,7 +483,7 @@ double ftheta(double r, double rdot, double theta, double thetadot, double z, do
     //printf("%E\n", df_slow_t_disk(vg * vc(r), v, r, z, thetadot) / gasDFt(r, rdot, thetadot, z, cs, vg * vc(r)));
     //printf("%E\n", r * thetadot / cs);
     //printf("%E\n", df_bulge_t(r, z, v, thetadot));
-    return (1.0 / (r * M2 * sl_kg)) * ((-2.0) * rdot * thetadot * M2 * (sl_kg) + 1.0 * gasDFt(r, rdot, thetadot, z, cs, vg * vc(r)) + 1.0 * df_slow_t_disk(vg * vc(r), v, r, z, thetadot) + 1.0 * df_fast_t_disk(vg * vc(r), v, r, z, thetadot) + 1.0 * df_bulge_t(r, z, v, thetadot));
+    return (1.0 / (r * M2 * sl_kg)) * ((-2.0) * rdot * thetadot * M2 * (sl_kg) + 1.0 * gasDFt(r, rdot, thetadot, z, cs, vg * vc(r, z)) + 1.0 * df_slow_t_disk(vg * vc(r, z), v, r, z, thetadot) + 1.0 * df_fast_t_disk(vg * vc(r, z), v, r, z, thetadot) + 1.0 * df_bulge_t(r, z, v, thetadot));
 }
 
 double fz(double r, double rdot, double thetadot, double z, double zdot, double cs) {
@@ -456,7 +506,7 @@ State RK4Solver(State initial_state, double dt, double total_time) {
     char filename_avgt[20];
     char filename_avgr[20];
     sprintf(filename, "bh_test2.txt");
-    sprintf(filename1, "mach.txt");
+    sprintf(filename1, "energy.txt");
     sprintf(filename2, "z.txt");
     sprintf(filename3, "tau.txt");
     sprintf(filename_avgr, "avgr.txt");
@@ -504,10 +554,10 @@ State RK4Solver(State initial_state, double dt, double total_time) {
         double L_z = r * r * thetadot;
         double L_lat = r * zdot;
         double L_total = pow(L_z * L_z + L_lat * L_lat, 0.5);
-        double v = pow(rdot * rdot + r * r * thetadot * thetadot, 0.5);
+        double v = pow(rdot * rdot + r * r * thetadot * thetadot + zdot * zdot, 0.5);
 
         //Introduce Toomre criterion
-        cs = (G * M_PI * 2 * rho_rz(r, z) * z_thick) / ((2 * abs(vg) * vc(r)) / r);
+        cs = (G * M_PI * 2 * rho_rz(r, z) * z_thick) / ((2 * abs(vg) * vc(r, z)) / r);
         T = (3 * m_p * cs * cs) / (5 * kb);
         T += 1E4;
         cs = pow(5 * kb * T / (3 * m_p), 0.5);
@@ -591,11 +641,11 @@ State RK4Solver(State initial_state, double dt, double total_time) {
         }
 
         fprintf(fp, "%E\t%E\n", t, current_state.r);
-        fprintf(fm, "%E\t%E\n", t, mach);
+        fprintf(fm, "%E\t%E\n", t, E);
         fprintf(fv, "%E\t%E\n", t, z);
         
         if (dt > (total_time / 1E8)) {
-            dt = 0.001 * 2 * PI * current_state.r / abs(vc(r));
+            dt = 0.001 * 2 * PI * current_state.r / abs(vc(r, z));
         } else {
             dt = dt0;
         }
@@ -610,22 +660,40 @@ int main() {
     
     //Initialize galaxy
     int N = 200;
+    int N2 = 200;
     r_arr = new double[N];
     z_arr = new double[N];
-    double *a[N];
-    double *b[N];
-    double *c[N];
+    r2_arr = new double[N];
+    z2_arr = new double[N];
+
+    double *a[N]; //rho
+    double *a2[N2];
+    double *b[N]; //phi
+    double *b2[N2];
+    double *c[N]; //rho_b
+    double *c2[N2];
     double * rg[N];
+    double * rg2[N2];
     double * rs[N];
+    double * rs2[N2];
     double * rst[N];
+    double * rst2[N2];
     double * rh[N];
 
     phi = new double*[N];
+    phi2 = new double*[N2];
     rho = new double*[N];
+    rho2 = new double*[N2];
     rho_s = new double*[N];
+    rho_s2 = new double*[N2];
     rho_st = new double*[N];
+    rho_st2 = new double*[N2];
+
     rho_g = new double*[N];
+    rho_g2 = new double*[N2];
+
     rho_bg = new double*[N];
+    rho_bg2 = new double*[N2];
     rho_h = new double*[N];
     phi_b = new double*[N];
 
@@ -639,7 +707,14 @@ int main() {
         rho_h[i] = new double[N];
         phi_b[i] = new double[N];
     }
-
+    for (size_t i = 0; i < N2; ++i) {
+        phi2[i] = new double[N2];
+        rho2[i] = new double[N2];
+        rho_s2[i] = new double[N2];
+        rho_st2[i] = new double[N2];
+        rho_bg2[i] = new double[N2];
+        rho_g2[i] = new double[N2];
+    }
     for (int i = 0; i < N; i++) {
         r_arr[i] = 0.0;
         z_arr[i] = 0.0;
@@ -654,6 +729,18 @@ int main() {
             rho_bg[i][j] = 0.0;
         }
     }
+    for (int i = 0; i < N2; i++) {
+        r2_arr[i] = 0.0;
+        z2_arr[i] = 0.0;
+        for (int j = 0; j < N2; j++) {
+            phi2[i][j] = -0.0 * 1E0;
+            rho2[i][j] = 0.0;
+            rho_s2[i][j] = 0.0;
+            rho_st2[i][j] = 0.0;
+            rho_g2[i][j] = 0.0;
+            rho_bg2[i][j] = 0.0;
+        }
+    }
 
     for (int i = 0; i < N; i++) {
         a[i] = rho[i];
@@ -664,17 +751,27 @@ int main() {
         b[i] = phi[i];
         c[i] = rho_bg[i];
     }
+    for (int i = 0; i < N2; i++) {
+        a2[i] = rho2[i];
+        rg2[i] = rho_g2[i];
+        rs2[i] = rho_s2[i];
+        rst2[i] = rho_st2[i];
+        b2[i] = phi2[i];
+        c2[i] = rho_bg2[i];
+    }
     /*
     for (int k = 0; k < N; k++) {
         b[k] = phi[k];
     }
     */
     double L = 2.0 * R_gd;
+    double L2 = 0.1 * R_gd;
     double h = L / (N - 1);
+    double h2 = L2 / (N2 - 1); //NOTE N not M
 
     //double rho0 = 10.0 * rho_gd(0.0); //FACTOR OF 10 TO ACCOUNT FOR FLATNESS, WILL BE REMOVED LATER WHEN THICK
     double rho0 = 1.0 * rho_gd(0.0);
-    double rhob0 = 1.0 * 9.5E-21;
+    double rhob0 = 0.0 * 9.5E-21; //OFF
     double k = 1.0 / R_gd;
 
     double rho_sd = 0.25 * rho_gd(0.0); //to be calculated with integration later
@@ -682,15 +779,23 @@ int main() {
     std::vector<double> params_halo = {1.0 * 4.839E-20, 1.0 * 4.21E19};
     r_init(N, L, r_arr);
     z_init(N, L, z_arr);
+    r_init(N, L, r2_arr);
+    z_init(N2, L2, z2_arr);
     //rho_init(N, L, a, rho0, k);
     //printf("\nGotcha\n");
-    rhog_init(N, L, a, R_gd, z_thick, 0.0);
+    //rhog_init(N, L, a, R_gd, z_thick, 0.0);
     rhos_init(N, L, rst, {0.0, R_sd, z_thick, 3.0 * z_thick});
     rhos_init(N, L, rs, params_std);
     rhog_init(N, L, rg, R_gd, z_thick, 1.0 * rho0);
-    halo_init(N, L, rh, params_halo);
+    //halo_init(N, L, rh, params_halo);
     bulge_init(N, L, c, 1.0 * rhob0, 0.6, R_gd / 2.0);
-    //rhos_init(N, L, rs, R_sd, )
+
+    //std::vector<double> params_std2 = {3.10448, R_sd, 0.1 * R_sd, R_sd / 3.0};
+    rhos_init2(N, N2, L, L2, rs2, params_std);
+    rhog2_init(N, N2, L, L2, rg2, R_gd, z_thick, 1.0 * rho0);
+    bulge2_init(N, N2, L, L2, c2, rhob0, 0.6, R_gd / 2.0);
+    
+    
     /*
     switching to flat conservative orbit:
     turn off DFs above,
@@ -701,7 +806,15 @@ int main() {
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
             rho_st[i][j] += (rho_bg[i][j] + rho_s[i][j]);
-            rho[i][j] += (1.0 * rho_bg[i][j] + 1.0 * rho_g[i][j] + 1.0 * rho_s[i][j] + 0.0 * rho_h[i][j]);
+            rho[i][j] += (1.0 * rho_bg[i][j] + 1.0 * rho_g[i][j] + 1.0 * rho_s[i][j] + 0.0 * rho_h[i][j]); //HALO SWITCH
+        }
+    }
+    
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N2; j++) {
+            rho_st2[i][j] += (rho_bg2[i][j] + rho_s2[i][j]);
+            rho2[i][j] += 1.0 * (1.0 * rho_bg2[i][j] + 1.0 * rho_g2[i][j] + 1.0 * rho_s2[i][j]);
+            //printf("%E\n", rho2[i][j]);
         }
     }
     
@@ -711,8 +824,21 @@ int main() {
     printf("\nDMass: %E\n", dmass / (sl_kg));
     //printf("Energy: %E\t ")
 
+/*
+    char filename5[20];
+    sprintf(filename5, "rho_bef.csv");
+    FILE* fpot2 = fopen(filename5, "w");
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            fprintf(fpot2, "%E,", gsl_interp2d_eval(interp, r_arr, z_arr, rho_flat, (j - N / 2) * h, (i - N / 2) * h, xacc, yacc));
+            //fprintf(fpot, "%E,", phi2[i][j]);
+            //fprintf(fpot, "%E,", gsl_interp2d_eval(interp, z2_arr, r2_arr, rho2_flat, (j - N / 2) * dzh, (i - N2 / 2) * drh, xacc, yacc));
+        }
+        fprintf(fpot2, "\n");
+    }
+*/    
     relax(N, L, a, b, 50000, 4 * M_PI * G * rho0 * 1E-4 * h * h);
-
+    
     // Create an interpolation object
     interp = gsl_interp2d_alloc(gsl_interp2d_bicubic, N, N);
     xacc = gsl_interp_accel_alloc();
@@ -723,6 +849,13 @@ int main() {
     xacc_r = gsl_interp_accel_alloc();
     yacc_r = gsl_interp_accel_alloc();
     
+    interp_amr = gsl_interp2d_alloc(gsl_interp2d_bicubic, N, N);
+    xacc_amr = gsl_interp_accel_alloc();
+    yacc_amr = gsl_interp_accel_alloc();
+    
+    double drh = L / (N + 1);
+    double dzh = L2 / (N2 + 1);
+
     phi_flat = new double[N * N];
     rho_flat = new double[N * N];
     rho_g_flat = new double[N * N];
@@ -748,8 +881,10 @@ int main() {
     }
 
     // Initialize the interpolation object
+    
     gsl_interp2d_init(interp, r_arr, z_arr, phi_flat, N, N);
     gsl_interp2d_init(interp_r, r_arr, z_arr, rho_flat, N, N);
+    
     /*
     for (int j = 0; j < N/2; j++) {
         //printf("%E\n", phi[N/2 - 20][j]);
@@ -757,16 +892,95 @@ int main() {
         printf("%E\t%E\n", gsl_interp2d_eval_deriv_y(interp, r_arr, z_arr, phi_flat, 1000.0 * pc_m, -1.0 * j * h, xacc, yacc), gsl_interp2d_eval_deriv_y(interp, r_arr, z_arr, phi_flat, 1000.0 * pc_m, 1.0 * j * h, xacc, yacc));
     }
     */
+    
+    //sus ordering???
+    for (int i = 0; i < N2; i++) {
+        for (int j = 0; j < N; j++) {
+            //if (i == 0.0 || j == 0.0 || i == N2 - 1 || j == N - 1) {
+                phi2[i][j] = gsl_interp2d_eval(interp, r_arr, z_arr, phi_flat, (j - N / 2) * drh, (i - N / 2) * dzh, xacc_amr, yacc_amr);
+            //}
+            //CHECK LEFT AND RIGHT EDGES, THEY NEED TO BE 0
+        }
+    }
+    
+    char filenameb[20];
+    sprintf(filenameb, "rho.csv");
+    FILE* fpotb = fopen(filenameb, "w");
+    for (int i = 0; i < N2; i++) {
+        for (int j = 0; j < N; j++) {
+            //fprintf(fpot, "%E,", gsl_interp2d_eval(interp, r_arr, z_arr, phi_flat, (j - N / 2) * h, (i - N / 2) * h, xacc, yacc));
+            fprintf(fpotb, "%E,", rho2[i][j]);
+            //printf("%E\n", rho2[i][j]);
+            //fprintf(fpot2, "%E,", gsl_interp2d_eval(interp, r2_arr, z2_arr, phi_flat2, (i - N / 2) * drh, (j - N2 / 2) * dzh, xacc, yacc));
+        }
+        fprintf(fpotb, "\n");
+    }
+    
+    relax_amr(N, N2, L, L2, a2, b2, 50000, 4 * M_PI * G * rho0 * 1E-4 * h * h2);
+
+    phi_flat2 = new double[N * N2];
+    rho_flat2 = new double[N * N2];
+    rho_g_flat2 = new double[N * N2];
+    rho_s_flat2 = new double[N * N2];
+    rho_st_flat2 = new double[N * N2];
+
+
+    i1 = 0;
+    i2 = 0;
+    i3 = 0;
+    i4 = 0;
+    i5 = 0;
+    
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N2; j++) {
+            rho_flat2[i1++] = rho2[i][j];
+            phi_flat2[i2++] = phi2[i][j];
+            rho_g_flat2[i3++] = rho_g2[i][j];
+            rho_s_flat2[i4++] = rho_s2[i][j];
+            rho_st_flat2[i5++] = rho_st2[i][j];
+            //printf("%E\n", rho_g2[i][j]);
+        }
+    }  
+
+
+    gsl_interp2d_init(interp_amr, r2_arr, z2_arr, phi_flat2, N, N);
+    
+    char filenamebc[20];
+    sprintf(filenamebc, "inner.csv");
+    FILE* fpot2 = fopen(filenamebc, "w");
+    for (int i = 0; i < N2; i++) {
+        for (int j = 0; j < N; j++) {
+            //fprintf(fpot, "%E,", gsl_interp2d_eval(interp, r_arr, z_arr, phi_flat, (j - N / 2) * h, (i - N / 2) * h, xacc, yacc));
+            fprintf(fpot2, "%E,", phi2[i][j]);
+            //printf("%E\n", rho_g2[i][j]);
+            //fprintf(fpot2, "%E,", gsl_interp2d_eval(interp, r2_arr, z2_arr, phi_flat2, (i - N / 2) * drh, (j - N2 / 2) * dzh, xacc, yacc));
+        }
+        fprintf(fpot2, "\n");
+    }
+    
+    /*
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            if (i == 0 || j == 0 || i == N-1 || j == N-1) {
+                rho[i][j] = 0.0;
+            }
+        }
+        //fprintf(fpot2, "\n");
+    }
+    */
     char filename4[20];
-    sprintf(filename4, "potential.csv");
+    sprintf(filename4, "phi.csv");
     FILE* fpot = fopen(filename4, "w");
     for (int i = 0; i < N; i++) {
-        for (int j = 0; j < N; j ++) {
-            fprintf(fpot, "%E,", gsl_interp2d_eval(interp, r_arr, z_arr, phi_flat, (j - N / 2) * h, (i - N / 2) * h, xacc, yacc));
+        for (int j = 0; j < N; j++) {
+            //fprintf(fpot, "%E,", gsl_interp2d_eval(interp, r_arr, z_arr, rho_flat, (j - N / 2) * h, (i - N / 2) * h, xacc, yacc));
+            fprintf(fpot, "%E,", phi[i][j]);
+            //fprintf(fpot, "%E,", phi2[i][j]);
+            //fprintf(fpot, "%E,", gsl_interp2d_eval(interp, z2_arr, r2_arr, rho2_flat, (j - N / 2) * dzh, (i - N2 / 2) * drh, xacc, yacc));
         }
         fprintf(fpot, "\n");
     }
-
+    
     
     //printf("%E\n", gsl_interp2d_eval(interp, r_arr, z_arr, phi_flat, 1.0 * pc_m, -1.0 * pc_m, xacc, yacc));
     double cs0 = pow(5 * kb * 1E4 / (3 * m_p), 0.5);
@@ -777,19 +991,20 @@ int main() {
     //double z0 = 1.0 * z_thick;
     double zd0 = 0.0 * cs0;
     double f = 0.5;
-    double v_c = vc(r0);
+    double v_c = vc(r0, z0);
     double td0 = 1.0 * v_c * pow(1 + f, 0.5) / r0;
 
     
     double v_0 = r0 * td0;
     double s_0 = pow(r0 * r0 + z0 * z0, 0.5);
-    double theta_z = (0.0 / 180) * M_PI;
+    double theta_z = (30.0 / 180) * M_PI;
     r0 = s_0 * cos(theta_z);
     z0 = s_0 * sin(theta_z);
-    td0 = v_0 / r0;
+    //z0 = -0.0 * pc_m;
+    td0 = 1.0 * v_0 / r0;
 
     printf("%E\t%E\n", r0 / (1000.0 * pc_m), z0 / (1000.0 * pc_m));
-    double total_time = 1.0E10 * yr_s; //BE CAREFUL HERE
+    double total_time = 1.2E10 * yr_s; //BE CAREFUL HERE
     double n = 1000000.0;
     double time_step = total_time / n;
     //printf("%lf\n", numInt(0.0, 3.0, testPhi));
@@ -797,6 +1012,6 @@ int main() {
     State initial_state{ r0, rd0, t0, td0, z0, zd0};
     State final_state = RK4Solver(initial_state, time_step, total_time);
 
-    printf("\nTerminated at radius %E\n", final_state.r);
+    printf("\nTerminated at radius %E\n", final_state.r / pc_m);
     return 0;
 }
