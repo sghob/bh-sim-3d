@@ -58,6 +58,12 @@ double rho_stellar(double r, double z, const std::vector<double>& params) {
 
 }
 
+double rho_stellar_f(double r, double z, const std::vector<double>& params) {
+    //return 2 * params[1] * params[0] * exp(-1.0 * r / params[1]) * ((0.5 / (2*params[2])) * exp(-1.0 * abs(z) / params[2]) + (0.5 / (2*params[3])) * exp(-1.0 * abs(z) / params[3]));
+    return 2.0 * M_PI * r * params[0] * exp(-1.0 * r / params[1]) * ((0.5 / (2*params[2])) * exp(-1.0 * abs(z) / params[2]) + (0.5 / (2*params[3])) * exp(-1.0 * abs(z) / params[3]));
+}
+
+
 void rhos_init(int N, double L, double **rhos, const std::vector<double>& params) {
     double h = L / (N - 1);
     for (int i = 0; i < N/2; i++) {
@@ -109,6 +115,10 @@ double rho_gas_f(double r, double z, const std::vector<double>& params) {
     return 2 * M_PI * r * params[0] * pow(M_E, (-1.0 * r / params[1]) - 1.0 * (z / params[2])); //note, no abs
 }
 
+double rho_flat_disk(double r, double z, double r_d, double z_d, double A) {
+    return A * pow(M_E, -1.0 * r / r_d) * pow((cosh(z / (2.0 * z_d))), -2.0);
+}
+
 void rhog_init(int N, double L, double **rhog, double r_g, double z_g, double A) {
     double h = L / (N - 1);
     for (int i = 0; i < N/2; i++) {
@@ -143,7 +153,48 @@ void rhog2_init(int N, int N2, double L, double L2, double **rhog, double r_g, d
             rhog[N2/2-j][N/2+i] = density;
             rhog[N2/2+j][N/2-i] = density;
             rhog[N2/2-j][N/2-i] = density;
-            printf("%E\n", density);
+            //printf("%E\n", density);
+        }
+    }
+
+    return;
+}
+
+void rhofd_init(int N, double L, double **rhog, double r_g, double z_g, double A) {
+    double h = L / (N - 1);
+    for (int i = 0; i < N/2; i++) {
+        double r = i * h;
+        for (int j = 0; j < N/2; j++) {
+            double z = j * h;
+            double density;
+            density = rho_flat_disk(r, z, r_g, z_g, A);
+            
+            rhog[N/2+j][N/2+i] = density;
+            rhog[N/2-j][N/2+i] = density;
+            rhog[N/2+j][N/2-i] = density;
+            rhog[N/2-j][N/2-i] = density;
+            
+        }
+    }
+
+    return;
+}
+
+void rhofd2_init(int N, int N2, double L, double L2, double **rhog, double r_g, double z_g, double A) {
+    double h = L / (N - 1);
+    double h2 = L2 / (N2 - 1);
+    for (int i = 0; i < N/2; i++) {
+        double r = i * h;
+        for (int j = 0; j < N2/2; j++) {
+            double z = j * h2;
+            double density;
+            density = rho_flat_disk(r, z, r_g, z_g, A);
+            
+            rhog[N2/2+j][N/2+i] = density;
+            rhog[N2/2-j][N/2+i] = density;
+            rhog[N2/2+j][N/2-i] = density;
+            rhog[N2/2-j][N/2-i] = density;
+            //printf("%E\n", density);
         }
     }
 
@@ -184,12 +235,21 @@ void rho_init(int N, double L, double **rho, double A, double k) {
 
 double rho_bulge(double r, double z, double rho0, double qb, double ab, double rb) {
     double m = pow(r * r + (z * z) / (qb * qb), 0.5);
-    return rho0 * pow(m/ab, -1.8) * pow(M_E, -1.0 * m * m / (rb * rb));
+    return rho0 * pow(m/(ab/1), -1.8) * pow(M_E, -1.0 * m * m / ((rb/1) * (rb/1))); //GET RID OF 4
 }
 
 double rho_bulge_f(double r, double z, const std::vector<double>& params) {
     double m = pow(r * r + (z * z) / (params[1] * params[1]), 0.5);
     return params[0] * pow(m / params[2], -1.8) * pow(M_E, -1.0 * m * m / (params[3] * params[3]));
+}
+
+//maybe replace numbers with tunable params later
+double rho_bulge_cof(double r, double z, const std::vector<double>& params) {
+    double m = pow(r * r + (z * z) / (0.6 * 0.6), 0.5);
+    if (r < params[0] && (z < params[0] && z > -1.0 * params[0])) {
+        m = pow((params[0]) * (params[0]) + (z * z) / (0.6 * 0.6), 0.5);
+    }
+    return 2 * M_PI * r * params[1] * pow(m / 1.0, -1.8) * pow(M_E, -1.0 * m * m / (1.9 * 1.9)); 
 }
 
 double fs_v(double vc, double vs, double vesc) { //gamma=1.6
@@ -203,8 +263,8 @@ double fs_v(double vc, double vs, double vesc) { //gamma=1.6
 }
 
 void bulge_init(int N, double L, double **rho_b, double rho0, double qb, double Rb) {
-    double ab = 1.0 * kpc_m;//Rb / 4.0;               //EDIT THIS FOR VARIABLE SCALE R
-    double rb = 1.9 * kpc_m;//* Rb / 4.0;
+    double ab = 1.0 * Rb;//Rb / 4.0;               //EDIT THIS FOR VARIABLE SCALE R
+    double rb = 1.9 * Rb;//* Rb / 4.0;
     //double ab = 1.0 * Rb / 4.0;
     //double rb = 1.0 * Rb / 4.0;
     double h = L / (N - 1);
@@ -214,11 +274,13 @@ void bulge_init(int N, double L, double **rho_b, double rho0, double qb, double 
             double z = j * h;
             double density;
             if (r == 0 && z == 0) {
-                density = 5.16E-16 * (rho0 != 0.0);
-                //density = rho_bulge(r + h, z, rho0, qb, ab, rb);
-            } else if (r > 3.086E19 || z > 3.086E19) {
+                //density = 4.069E-17 * (rho0 != 0.0);
+                density = rho_bulge(r + h, z, rho0, qb, ab, rb);
+                //printf("%E\n", density);
+            } else if (r > Rb || z > Rb) { //GOTCHA
                 density = 0.0;
-            } else {
+                //density = rho_bulge(r, z, rho0, qb, ab, rb); //TEMPORARY SOLUTION, come back and replace with truncation at appropriate Rsd 
+            } else { //also, don't forget to replace inputs with a params list instead
                 density = rho_bulge(r, z, rho0, qb, ab, rb);
             }
 
@@ -234,8 +296,8 @@ void bulge_init(int N, double L, double **rho_b, double rho0, double qb, double 
 }
 
 void bulge2_init(int N, int N2, double L, double L2, double **rho_b, double rho0, double qb, double Rb) {
-    double ab = 1.0 * kpc_m;//Rb / 4.0;               //EDIT THIS FOR VARIABLE SCALE R
-    double rb = 1.9 * kpc_m;//* Rb / 4.0;
+    double ab = 1.0 * Rb;//Rb / 4.0;               //EDIT THIS FOR VARIABLE SCALE R
+    double rb = 1.9 * Rb;//* Rb / 4.0;
     //double ab = 1.0 * Rb / 4.0;
     //double rb = 1.0 * Rb / 4.0;
     double h = L / (N - 1);
@@ -246,7 +308,8 @@ void bulge2_init(int N, int N2, double L, double L2, double **rho_b, double rho0
             double z = j * h2;
             double density;
             if (r == 0 && z == 0) {
-                density = 8.048E-15 * (rho0 != 0.0); //DANGER DANGER DANGER DANGER, NEED TO ADJUST FOR OMEGA2
+                //density = 8.048E-15 * (rho0 != 0.0); //DANGER DANGER DANGER DANGER, NEED TO ADJUST FOR OMEGA2
+                density = rho_bulge(r + h, z, rho0, qb, ab, rb);
             } else if (r > 3.086E19 || z > 3.086E19) {
                 density = 0.0;
             } else {
@@ -301,7 +364,7 @@ void relax(int N, double L, double **rho, double **phi, int max_iters, double ep
 
         for (int j = 1; j < N - 1; j++) {
             for (int k = 1; k < N - 1; k++) {
-                //double phi_new = 0.25 * (phi[j - 1][k] + phi[j + 1][k] + phi[j][k - 1] + phi[j][k + 1] - 4 * M_PI * 6.67E-11 * h * h * rho[j][k]);
+                
                 double r = abs(N / 2 - k) * h;
                 double phi_new = (/*(phi[j][k + 1] - phi[j][k - 1]) / (2 * r * h) + */(1 / (h * h)) * (phi[j][k + 1] + phi[j][k - 1]) + (1 / (h * h)) * (phi[j+1][k] + phi[j-1][k]) - 4 * M_PI * 6.67E-11 * rho[j][k]) / (2 / (h * h) + 2/ (h * h));
                 double error = fabs(phi[j][k] - phi_new);
@@ -309,6 +372,7 @@ void relax(int N, double L, double **rho, double **phi, int max_iters, double ep
                     f_error = error;
                 }
                 phi[j][k] = phi_new;
+                //printf("%E\n", phi[j][k]);
             }
         }
         if (f_error < eps) {
@@ -341,3 +405,4 @@ void relax_amr(int N, int M, double L, double W, double **rho, double **phi, int
         }
     }
 }
+
