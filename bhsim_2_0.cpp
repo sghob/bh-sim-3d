@@ -94,7 +94,7 @@
                                // (also pulls in integration.h for 1D/2D Simpson's rule)
 #include <gsl/gsl_interp2d.h>  // 2D bilinear interpolation of potential & density grids
 #include <gsl/gsl_errno.h>     // GSL error handler (useful for debugging out-of-bounds)
-
+#include <random>
 /*
  GSL error handler. GSL aborts by default on errors, which is usually a
  nuisance during development. Install this with gsl_set_error_handler() to
@@ -135,7 +135,7 @@ double mu_0 = 1.257E-6;   // vacuum magnetic permeability  [H/m]
 // ===========================================================================
 // SIMULATION PARAMETERS -- these are the main knobs you tune between runs.
 // ===========================================================================
-double M1    = 1.0E7;            // Primary BH mass [SOLAR MASSES, not kg]
+double M1    = 1.0E6;            // Primary BH mass [SOLAR MASSES, not kg]
 double q     = 1.0 / 9.0;        // Mass ratio M2/M1 (1:9 in the first paper)
 double M2    = M1 * q;           // Secondary BH mass [solar masses]
 double n_gd  = 100 * pow(100,3); // Central gas number density [m^-3]
@@ -839,7 +839,7 @@ State RK4Solver(State initial_state, double dt, double total_time, double angle)
     // Gas thermodynamics (updated every step from the Toomre-based prescription)
     double T  = 1E4;
     double cs = pow((5 * kb * T) / (3 * m_p), 0.5);
-
+    
     // Mach numbers & instantaneous energy-loss rates (for diagnostics)
     double mach    = 0.0;   // in-plane orbital Mach number (r*thetadot / cs)
     double macheff = 0.0;   // effective Mach relative to rotating gas
@@ -868,10 +868,12 @@ State RK4Solver(State initial_state, double dt, double total_time, double angle)
     double m_bhl = 0.0;                              // secondary BHL accretion rate
     double m_edd = 0.0;                              // secondary Eddington rate
     double m1_b  = 0.0;                              // primary Bondi accretion rate
-    double m1_edd = 0.0;                             // primary Eddington rate
+    double m1_edd = 2.2E-8 * M1;                             // primary Eddington rate
     double q     = M2 / M1;                          // (shadows global q -- re-evaluated as masses grow)
-    double cs00  = 0.0;                              // sound speed at primary's Bondi radius
-    double T0    = 0.0;                              // gas temperature at the primary
+    //double cs00  = 0.0;                              // sound speed at primary's Bondi radius
+    //double T0    = 0.0;                              // gas temperature at the primary
+    double T0 = (M1 / 1E8) * 1E7;
+    double cs00 = 1.0 * pow(5 * kb * T0 / (3.0 * m_p), 0.5);
     double M10   = M1;                               // initial primary mass (for accretion bookkeeping)
     double m1_max = 0.0;
     double flux1  = 0.0;
@@ -918,6 +920,19 @@ State RK4Solver(State initial_state, double dt, double total_time, double angle)
 
     double mdot_h1 = 0.0, mdot_h2 = 0.0;     // accretion rates onto the holes after efficiency cuts
     double mdot_bh1 = 0.0, mdot_bh2 = 0.0;   // mass actually added (accounting for rad + jet losses)
+
+    
+    double t_acc0 = 0.0;
+    double m1_b0  = (2.0 * M_PI * pow(G * M1 * sl_kg, 2.0) * m_p * 1.0 * 1E6 / pow(cs00 * cs00, 1.5)) * (yr_s / sl_kg);
+
+    double duty_p = 0.0;
+    double duty = 0.0;
+    double duty_sig = (log10(m1_edd) - 1.0 - log10(m1_b0)) / (sqrt(2) * my_erfinvf(2.0 * 0.99 -  1));//HERE
+    //printf("%f\t%f\t%E\n",my_erfinvf(2.0 * 0.99 - 1), duty_sig, log10(m1_b0));
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::normal_distribution<double> x_t(0.0, duty_sig);
+    double acc_eps = pow(10, x_t(gen));
 
     // Vertical peak detection: watch for zdot changing from + to -. The noise
     // threshold `epsilon` is a tiny fraction of the in-plane velocity.
@@ -987,7 +1002,7 @@ State RK4Solver(State initial_state, double dt, double total_time, double angle)
         T  = (3 * m_p * cs * cs) / (5 * kb);
         T += 1E4;                                    // warm-gas floor
         cs = pow(5 * kb * T / (3 * m_p), 0.5);
-
+        //printf("%E\n", cs);
         // Mach numbers: in-plane (mach), against rotating gas (macheff), vertical (machv)
         mach    = r * thetadot / cs;
         macheff = abs(r * thetadot + vg * vc(r, z)) / cs;
@@ -996,10 +1011,13 @@ State RK4Solver(State initial_state, double dt, double total_time, double angle)
         else          machavg += dt * abs(machv);
 
         // Sound speed at the primary BH's location (for its own Bondi rate)
-        cs00 = (G * M_PI * 2 * rho_rz(0.0 * pc_m, 0) * z_thick) / ((2 * abs(vg) * vc(10.0 * pc_m, 0)) / (10.0 * pc_m));
-        T0   = (3 * m_p * cs00 * cs00) / (5 * kb);
-        T0  += 1E4;
-        cs00 = 100.0 * pow(5 * kb * T0 / (3 * m_p), 0.5);
+        // cs00 = (G * M_PI * 2 * rho_rz(0.0 * pc_m, 0) * z_thick) / ((2 * abs(vg) * vc(10.0 * pc_m, 0)) / (10.0 * pc_m));
+        // T0   = (3 * m_p * cs00 * cs00) / (5 * kb);
+        // T0  += 1E4;
+        // cs00 = 1.0 * pow(5 * kb * T0 / (3 * m_p), 0.5);
+
+        T0 = (M1 / 1E8) * 1E7;
+        cs00 = 1.0 * pow(5 * kb * T0 / (3.0 * m_p), 0.5);
 
         // ---------------------------------------------------------------
         // Azimuthal-period detection: theta wraps past 0, so a jump down
@@ -1070,6 +1088,7 @@ State RK4Solver(State initial_state, double dt, double total_time, double angle)
         // saturated dimensionless flux flux_d (Tchekhovskoy-style fit).
         // ===============================================================
 
+        duty = ((double)rand()) / RAND_MAX < duty_p;
         // Secondary BH: BHL rate, Eddington rate, Bondi radius
         m_bhl  = 2.0 * M_PI * pow(G * M2 * sl_kg, 2.0) * rho_rz(r, z)
                / pow(pow(r * thetadot + vg * vc(r, z), 2.0) + cs * cs, 1.5);   // [kg/s]
@@ -1077,10 +1096,21 @@ State RK4Solver(State initial_state, double dt, double total_time, double angle)
         r_b2   = G * M2 * sl_kg / (pow(r * thetadot + vg * vc(r, z), 2.0) + cs * cs);
 
         // Primary BH: Bondi rate using the central gas density + cs00
-        m1_b   = 2.0 * M_PI * pow(G * M1 * sl_kg, 2.0) * rho_rz(0.0, 0.0) / pow(cs00 * cs00, 1.5);
+        //m1_b   = 2.0 * M_PI * pow(G * M1 * sl_kg, 2.0) * rho_rz(0.0, 0.0) / pow(cs00 * cs00, 1.5);
+        m1_b0  = 2.0 * M_PI * pow(G * M1 * sl_kg, 2.0) * m_p * 1.0 * 1E6 / pow(cs00 * cs00, 1.5);
+        m1_b   = acc_eps * 2.0 * M_PI * pow(G * M1 * sl_kg, 2.0) * m_p * 1.0 * 1E6 / pow(cs00 * cs00, 1.5);
         m1_edd = 2.2E-8 * M1 * sl_kg / yr_s;
         r_b1   = G * M1 * sl_kg / (cs00 * cs00);
+        
+        if (t_acc0 > 1E7 * yr_s) {
+            acc_eps = pow(10, x_t(gen));
+            t_acc0 = 0.0;
+        } else {
+            t_acc0 += dt;
+        }
 
+        // printf("%E\n", r_b1 / 3.086E16);
+        //printf("%E\n", dt / yr_s);
         // Disk Eddington ratios (before efficiency factors)
         fd_edd2 = m_bhl / m_edd;
         fd_edd1 = m1_b / m1_edd;
@@ -1121,7 +1151,7 @@ State RK4Solver(State initial_state, double dt, double total_time, double angle)
             e_acc1  = 0.01;
             e_rad1  = 0.0;
         }
-        e_jet1 = (kappa / (4.0 * M_PI)) * pow(flux_d1, 2.0) * pow(omega_h, 2.0)
+        e_jet1 = 1.0 * (kappa / (4.0 * M_PI)) * pow(flux_d1, 2.0) * pow(omega_h, 2.0)
                * (1.0 + 1.38 * pow(omega_h, 2.0) - 9.2 * pow(omega_h, 4.0));
 
         // Mass that actually crosses the horizon each step:
@@ -1142,6 +1172,8 @@ State RK4Solver(State initial_state, double dt, double total_time, double angle)
         pbz  = e_jet2 * e_acc2 * m_bhl * c * c;
         pbz1 = e_jet1 * e_acc1 * m1_b  * c * c;
 
+        //printf("%E\n", m1_b/m1_edd);
+        //printf("%f\n", ((double)rand()) / RAND_MAX);
         // ===============================================================
         // RK4 STEP
         //
@@ -1752,6 +1784,7 @@ int main(int argc, char *argv[]) {
 
     printf("\nTerminated at radius %E\n",
            pow(final_state.r * final_state.r + final_state.z * final_state.z, 0.5) / pc_m);
-
+    
+    
     return 0;
 }
