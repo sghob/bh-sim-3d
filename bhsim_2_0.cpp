@@ -135,7 +135,7 @@ double mu_0 = 1.257E-6;   // vacuum magnetic permeability  [H/m]
 // ===========================================================================
 // SIMULATION PARAMETERS -- these are the main knobs you tune between runs.
 // ===========================================================================
-double M1    = 1.0E6;            // Primary BH mass [SOLAR MASSES, not kg]
+double M1    = 1.0E8;            // Primary BH mass [SOLAR MASSES, not kg]
 double q     = 1.0 / 9.0;        // Mass ratio M2/M1 (1:9 in the first paper)
 double M2    = M1 * q;           // Secondary BH mass [solar masses]
 double n_gd  = 100 * pow(100,3); // Central gas number density [m^-3]
@@ -492,7 +492,7 @@ double df_fast_z_disk(double v_g, double v, double r, double z, double zdot) {
 // Total potential at (r, z) = galaxy potential (interpolated) + primary BH point mass.
 double phi_rz(double r, double z) {
     return gsl_interp2d_eval(interp, r_arr, z_arr, phi_flat, r, z, xacc, yacc)
-         - (G * M1 * sl_kg) / (pow(r * r + z * z, 0.5));
+         - (0.0 * G * M1 * sl_kg) / (pow(r * r + z * z, 0.5)); //OMG DONT FORGET PLZ
 }
 
 // Radial gravitational acceleration, g_r = -d(phi)/dr.
@@ -506,7 +506,7 @@ double g_fr(double r, double z) {
     // AMR transition criterion: near the midplane, switch to the fine grid.
     if (abs(z) < 0.049 * R_gd) {
         return -1.0 * gsl_interp2d_eval_deriv_x(interp_amr, r2_arr, z2_arr, phi_flat2, r, z, xacc_amr, yacc_amr)
-             - (G * M1 * sl_kg * r) / (pow(r * r + z * z, 1.5));
+             - (0.0 * G * M1 * sl_kg * r) / (pow(r * r + z * z, 1.5));
     }
 
     // Guard: if the grid derivative is positive (an artifact near the outer
@@ -517,17 +517,17 @@ double g_fr(double r, double z) {
     }
 
     return -1.0 * gsl_interp2d_eval_deriv_x(interp, r_arr, z_arr, phi_flat, r, z, xacc, yacc)
-         - (G * M1 * sl_kg * r) / (pow(r * r + z * z, 1.5));
+         - (0.0 * G * M1 * sl_kg * r) / (pow(r * r + z * z, 1.5));
 }
 
 // Vertical gravitational acceleration, g_z = -d(phi)/dz. Same AMR switch.
 double g_fz(double r, double z) {
     if (abs(z) < 0.049 * R_gd) {
         return -1.0 * gsl_interp2d_eval_deriv_y(interp_amr, r2_arr, z2_arr, phi_flat2, r, z, xacc_amr, yacc_amr)
-             - (G * M1 * sl_kg * z) / (pow(r * r + z * z, 1.5));
+             - (0.0 * G * M1 * sl_kg * z) / (pow(r * r + z * z, 1.5));
     }
     return -1.0 * gsl_interp2d_eval_deriv_y(interp, r_arr, z_arr, phi_flat, r, z, xacc, yacc)
-         - (G * M1 * sl_kg * z) / (pow(r * r + z * z, 1.5));
+         - (0.0 * G * M1 * sl_kg * z) / (pow(r * r + z * z, 1.5));
 }
 
 // Circular (rotational) speed at cylindrical radius r, computed from the
@@ -930,7 +930,7 @@ State RK4Solver(State initial_state, double dt, double total_time, double angle)
     double duty_sig = (log10(m1_edd) - 1.0 - log10(m1_b0)) / (sqrt(2) * my_erfinvf(2.0 * 0.99 -  1));//HERE
     //printf("%f\t%f\t%E\n",my_erfinvf(2.0 * 0.99 - 1), duty_sig, log10(m1_b0));
     std::random_device rd;
-    std::mt19937 gen(rd());
+    std::mt19937 gen(123);
     std::normal_distribution<double> x_t(0.0, duty_sig);
     double acc_eps = pow(10, x_t(gen));
 
@@ -1133,6 +1133,7 @@ State RK4Solver(State initial_state, double dt, double total_time, double angle)
             e_acc2  = 0.01;
             e_rad2  = 0.0;
         }
+        //printf("%E\n", ((G * M1 * sl_kg * z) / (pow(r * r + z * z, 1.5))) / g_fz(r, z));
         // Blandford-Znajek jet efficiency
         e_jet2 = (kappa / (4.0 * M_PI)) * pow(flux_d2, 2.0) * pow(omega_h, 2.0)
                * (1.0 + 1.38 * pow(omega_h, 2.0) - 9.2 * pow(omega_h, 4.0));
